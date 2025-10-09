@@ -21,10 +21,6 @@ This workflow:
 - Reads data from an Excel (or Google Sheet) file  
 - Generates personalized PDFs based on templates (V1, V2, V3)  
 - Sends individual emails through Gmail using Google Apps Script  
-- Keeps everything human-controlled and privacy-safe (sandboxed mode)  
-
-In short:  
-> *It automates what you already do manually, without losing control of the send button.*
 
 ---
 
@@ -62,27 +58,18 @@ or, as I like to call it:
    - Logs everything (because chaos is not a strategy)
 
 3. **Human side:**  
-   - Braces herself for the worse  
+   - Brace for the worst  
    - Clicks *Run*  
    - Smiles when it actually works
+   - Feel synapses click together
 
 ---
 
 ## What I learned
-
-- How to break a problem into steps instead of breaking my keyboard  
-- That AI isn’t magic — it’s a very patient co-pilot (if you know what to ask)  
+ 
+- That AI isn’t magic — it’s a very patient co-pilot (if you know what to ask) 
 - Debugging is 80% detective work and 20% internal screaming  
-- And that automation feels *really* good when it finally runs
-
----
-
-## Acknowledgments
-
-- **ChatGPT (OpenAI)** – my 24/7 coding buddy and therapist  
-- **Google Apps Script** – for existing in a weirdly friendly way  
-- **Microsoft Excel** – for being both the problem and the solution  
-- **Me** – for not giving up when the first 12 versions didn’t work  
+- Automation feels *really* good when it finally runs
 
 ---
 
