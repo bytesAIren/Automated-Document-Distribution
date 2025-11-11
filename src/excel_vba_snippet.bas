@@ -78,14 +78,28 @@ Sub GeneratePDFs()
         Set findCode = wdDoc.Content
         With findCode.Find
             .Text = "<<CODE>>"
-            .Replacement.Text = recordCode
+            .Replacement.Text = CODE
             .Execute Replace:=2
         End With
 
         Set findCompany = wdDoc.Content
         With findCompany.Find
             .Text = "<<COMPANY>>"
-            .Replacement.Text = companyName
+            .Replacement.Text = COMPANY
+            .Execute Replace:=2
+        End With
+        
+        Set findEmail = wdDoc.Content
+        With findCompany.Find
+            .Text = "<<EMAIL>>"
+            .Replacement.Text = Email
+            .Execute Replace:=2
+        End With
+        
+        Set findDate = wdDoc.Content
+        With findCompany.Find
+            .Text = "<<DATE>>"
+            .Replacement.Text = Date
             .Execute Replace:=2
         End With
 
