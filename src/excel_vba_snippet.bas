@@ -26,12 +26,15 @@
 ' -----------------------------------------------------------------------------
 
 Sub GeneratePDFs()
-    Dim wdApp As Object, wdDoc As Object
+    Dim wdApp As Object
+    Dim dataSheet As Worksheet
+    Dim dataTable As ListObject
+    Dim dataRow As ListRow
     Dim i As Long
-    Dim templatePath As String, outputFolder As String, pdfFileName As String
+    Dim companyColIndex As Long, codeColIndex As Long, versionColIndex As Long
+    Dim outputFolder As String
     Dim recordCode As String, companyName As String, versionLabel As String
     Dim basePath As String
-    Dim findCode As Object, findCompany As Object
 
     ' Base path (folder where the Excel file is located)
     basePath = ThisWorkbook.Path
@@ -44,76 +47,128 @@ Sub GeneratePDFs()
     Set wdApp = CreateObject("Word.Application")
     wdApp.Visible = False
 
-    ' Loop through all rows starting from row 2
-    For i = 2 To Cells(Rows.Count, 1).End(xlUp).Row
-        companyName = Trim(Cells(i, 1).Value)       ' Column A - Company Name
-        recordCode = Trim(Cells(i, 2).Value)        ' Column B - Unique Code / ID
-        versionLabel = UCase(Trim(Cells(i, 3).Value)) ' Column C - Version or Template Type
+    Set dataSheet = ThisWorkbook.Worksheets("Data")
 
-        ' Select the correct Word template based on version
-        Select Case versionLabel
-            Case "V1": templatePath = basePath & "\V1.docx"
-            Case "V2": templatePath = basePath & "\V2.docx"
-            Case "V3": templatePath = basePath & "\V3.docx"
-            Case Else
-                MsgBox "Unrecognized version at row " & i & ": " & versionLabel, vbExclamation
-                GoTo NextRow
-        End Select
+    ' Optional: work with a named table (e.g., ListObject "CompanyData") so you can
+    ' refer to columns by name instead of hard-coded indexes.
+    On Error Resume Next
+    Set dataTable = dataSheet.ListObjects("CompanyData")
+    On Error GoTo 0
 
-        ' Clean illegal characters from company name (for file name safety)
-        companyName = Replace(companyName, "/", "-")
-        companyName = Replace(companyName, "\", "-")
-        companyName = Replace(companyName, ":", "-")
-        companyName = Replace(companyName, "*", "")
-        companyName = Replace(companyName, "?", "")
-        companyName = Replace(companyName, """", "")
-        companyName = Replace(companyName, "<", "")
-        companyName = Replace(companyName, ">", "")
-        companyName = Replace(companyName, "|", "")
+    If Not dataTable Is Nothing Then
+        On Error Resume Next
+        companyColIndex = dataTable.ListColumns("Company Name").Index
+        codeColIndex = dataTable.ListColumns("Unique Code or ID").Index
+        versionColIndex = dataTable.ListColumns("Version").Index
+        On Error GoTo 0
 
-        ' Open Word template
-        Set wdDoc = wdApp.Documents.Open(templatePath)
+        If companyColIndex = 0 Or codeColIndex = 0 Or versionColIndex = 0 Then
+            MsgBox "The CompanyData table must include 'Company Name', 'Unique Code or ID', and 'Version' columns.", vbExclamation
+            GoTo Cleanup
+        End If
 
-        ' Replace placeholders with Excel data values
-        Set findCode = wdDoc.Content
-        With findCode.Find
-            .Text = "<<CODE>>"
-            .Replacement.Text = CODE
-            .Execute Replace:=2
+        For Each dataRow In dataTable.ListRows
+            companyName = Trim(dataRow.Range.Cells(1, companyColIndex).Value)
+            recordCode = Trim(dataRow.Range.Cells(1, codeColIndex).Value)
+            versionLabel = UCase(Trim(dataRow.Range.Cells(1, versionColIndex).Value))
+
+            ' Process the current row
+            ProcessRowValues basePath, outputFolder, recordCode, companyName, versionLabel, wdApp, _
+                              "table row " & dataRow.Index
+        Next dataRow
+
+    Else
+        ' Loop through all rows starting from row 2 on the "Data" worksheet
+        With dataSheet
+            For i = 2 To .Cells(.Rows.Count, 1).End(xlUp).Row
+                companyName = Trim(.Cells(i, 1).Value)         ' Column A - Company Name
+                recordCode = Trim(.Cells(i, 2).Value)          ' Column B - Unique Code / ID
+                versionLabel = UCase(Trim(.Cells(i, 3).Value)) ' Column C - Version or Template Type
+
+                ' Process the current row
+                ProcessRowValues basePath, outputFolder, recordCode, companyName, versionLabel, wdApp, _
+                                  "row " & i
+            Next i
         End With
+    End If
 
-        Set findCompany = wdDoc.Content
-        With findCompany.Find
-            .Text = "<<COMPANY>>"
-            .Replacement.Text = COMPANY
-            .Execute Replace:=2
-        End With
-        
-        Set findEmail = wdDoc.Content
-        With findCompany.Find
-            .Text = "<<EMAIL>>"
-            .Replacement.Text = Email
-            .Execute Replace:=2
-        End With
-        
-        Set findDate = wdDoc.Content
-        With findCompany.Find
-            .Text = "<<DATE>>"
-            .Replacement.Text = Date
-            .Execute Replace:=2
-        End With
-
-        ' Save the filled document as PDF
-        pdfFileName = outputFolder & recordCode & "_" & companyName & ".pdf"
-        wdDoc.ExportAsFixedFormat OutputFileName:=pdfFileName, ExportFormat:=17
-        wdDoc.Close False
-
-NextRow:
-    Next i
-
+Cleanup:
     ' Close Word instance
     wdApp.Quit
 
     ' Confirmation message
     MsgBox "PDFs successfully generated in: " & outputFolder, vbInformation
+End Sub
+
+Private Sub ProcessRowValues(ByVal basePath As String, _
+                             ByVal outputFolder As String, _
+                             ByVal recordCode As String, _
+                             ByVal companyNameValue As String, _
+                             ByVal versionLabel As String, _
+                             ByVal wdApp As Object, _
+                             ByVal rowLabel As String)
+
+    Dim templatePath As String
+    Dim sanitizedCompany As String
+    Dim wdDoc As Object
+    Dim pdfFileName As String
+    Dim findCode As Object, findCompany As Object, findEmail As Object, findDate As Object
+
+    ' Select the correct Word template based on version
+    Select Case versionLabel
+        Case "V1": templatePath = basePath & "\V1.docx"
+        Case "V2": templatePath = basePath & "\V2.docx"
+        Case "V3": templatePath = basePath & "\V3.docx"
+        Case Else
+            MsgBox "Unrecognized version at " & rowLabel & ": " & versionLabel, vbExclamation
+            Exit Sub
+    End Select
+
+    ' Clean illegal characters from company name (for file name safety)
+    sanitizedCompany = Replace(companyNameValue, "/", "-")
+    sanitizedCompany = Replace(sanitizedCompany, "\", "-")
+    sanitizedCompany = Replace(sanitizedCompany, ":", "-")
+    sanitizedCompany = Replace(sanitizedCompany, "*", "")
+    sanitizedCompany = Replace(sanitizedCompany, "?", "")
+    sanitizedCompany = Replace(sanitizedCompany, """", "")
+    sanitizedCompany = Replace(sanitizedCompany, "<", "")
+    sanitizedCompany = Replace(sanitizedCompany, ">", "")
+    sanitizedCompany = Replace(sanitizedCompany, "|", "")
+
+    ' Open Word template
+    Set wdDoc = wdApp.Documents.Open(templatePath)
+
+    ' Replace placeholders with Excel data values
+    Set findCode = wdDoc.Content
+    With findCode.Find
+        .Text = "<<CODE>>"
+        .Replacement.Text = recordCode
+        .Execute Replace:=2
+    End With
+
+    Set findCompany = wdDoc.Content
+    With findCompany.Find
+        .Text = "<<COMPANY>>"
+        .Replacement.Text = companyNameValue
+        .Execute Replace:=2
+    End With
+
+    Set findEmail = wdDoc.Content
+    With findEmail.Find
+        .Text = "<<EMAIL>>"
+        .Replacement.Text = ""
+        .Execute Replace:=2
+    End With
+
+    Set findDate = wdDoc.Content
+    With findDate.Find
+        .Text = "<<DATE>>"
+        .Replacement.Text = Format(Date, "yyyy-mm-dd")
+        .Execute Replace:=2
+    End With
+
+    ' Save the filled document as PDF
+    pdfFileName = outputFolder & recordCode & "_" & sanitizedCompany & ".pdf"
+    wdDoc.ExportAsFixedFormat OutputFileName:=pdfFileName, ExportFormat:=17
+    wdDoc.Close False
 End Sub
