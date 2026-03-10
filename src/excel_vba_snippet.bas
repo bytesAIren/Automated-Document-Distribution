@@ -1,127 +1,309 @@
 ' -----------------------------------------------------------------------------
-' Project: Automated PDF Generator from Excel
-' Author: Jenny Marchioro (Fixed Version)
-' Description:
-'   Legge i dati da Excel, apre template Word, sostituisce i placeholder
-'   e salva in PDF. Include gestione errori e pulizia processi.
+' Project:     Automated PDF Generator from Excel
+' Description: Reads data from Excel, opens a Word template, replaces
+'              placeholders, and saves output as PDF.
+'              Includes error handling, duplicate prevention, process cleanup,
+'              and visual feedback via status bar.
 '
-' Setup Colonne Excel:
-'   A: Company Name | B: Code | C: Version | D: Email | E: Date
+' Excel Column Setup:
+'   A: Company Name | B: Record Code | C: Version (V1/V2/V3) | D: Email | E: Date | F: Status
+'
+' Word Template Placeholders:
+'   <<CODE>> | <<COMPANY>> | <<EMAIL>> | <<DATE>>
+'
+' Template files expected in the same folder as this workbook:
+'   V1.docx, V2.docx, V3.docx
+'
+' Output PDFs are saved to: <WorkbookFolder>\Generated_PDFs\
 ' -----------------------------------------------------------------------------
 
+Option Explicit
+
 Sub GeneratePDFs()
-    Dim wdApp As Object, wdDoc As Object
-    Dim i As Long
-    Dim templatePath As String, outputFolder As String, pdfFileName As String
-    Dim recordCode As String, companyName As String, versionLabel As String
-    Dim emailAddress As String, recordDate As String
-    Dim basePath As String
-    Dim findRange As Object
-    
+
+    ' -------------------------------------------------------------------------
+    ' DECLARATIONS
+    ' -------------------------------------------------------------------------
+    Dim wdApp       As Object
+    Dim wdDoc       As Object
+    Dim i           As Long
+    Dim lastRow     As Long
+
+    Dim basePath        As String
+    Dim outputFolder    As String
+    Dim templatePath    As String
+    Dim pdfFilePath     As String
+
+    Dim companyName     As String
+    Dim safeCompanyName As String
+    Dim recordCode      As String
+    Dim versionLabel    As String
+    Dim emailAddress    As String
+    Dim recordDate      As String
+    Dim statusCell      As String
+
+    Dim illegalChars    As Variant
+    Dim c               As Long
+    Dim successCount    As Long
+    Dim skipCount       As Long
+    Dim errorCount      As Long
+
     On Error GoTo ErrorHandler
 
-    ' Percorso base (cartella del file Excel)
-    basePath = ThisWorkbook.Path
+    ' -------------------------------------------------------------------------
+    ' SETUP
+    ' -------------------------------------------------------------------------
+    basePath     = ThisWorkbook.Path
     outputFolder = basePath & "\Generated_PDFs\"
+    illegalChars = Array("/", "\", ":", "*", "?", """", "<", ">", "|", "'")
 
-    ' Crea cartella di output se non esiste
+    ' Create output folder if it doesn't exist
     If Dir(outputFolder, vbDirectory) = "" Then MkDir outputFolder
 
-    ' Avvia Word (nascosto)
+    ' Find last row with data in column A
+    lastRow = Cells(Rows.Count, 1).End(xlUp).Row
+
+    If lastRow < 2 Then
+        MsgBox "No data found. Please check your spreadsheet.", vbExclamation
+        Exit Sub
+    End If
+
+    ' Start Word (hidden)
     Set wdApp = CreateObject("Word.Application")
     wdApp.Visible = False
 
-    ' Ciclo sulle righe partendo dalla 2
-    For i = 2 To Cells(Rows.Count, 1).End(xlUp).Row
-        companyName = Trim(Cells(i, 1).Value)         ' Colonna A
-        recordCode = Trim(Cells(i, 2).Value)          ' Colonna B
-        versionLabel = UCase(Trim(Cells(i, 3).Value))  ' Colonna C
-        emailAddress = Trim(Cells(i, 4).Value)        ' Colonna D
-        recordDate = Trim(Cells(i, 5).Value)          ' Colonna E
+    successCount = 0
+    skipCount    = 0
+    errorCount   = 0
 
-        ' Selezione template in base alla versione
+    ' -------------------------------------------------------------------------
+    ' MAIN LOOP
+    ' -------------------------------------------------------------------------
+    For i = 2 To lastRow
+
+        Application.StatusBar = "Processing row " & i & " of " & lastRow & "..."
+
+        ' Read cell values
+        companyName  = Trim(Cells(i, 1).Value)
+        recordCode   = Trim(Cells(i, 2).Value)
+        versionLabel = UCase(Trim(Cells(i, 3).Value))
+        emailAddress = Trim(Cells(i, 4).Value)
+        recordDate   = Trim(Cells(i, 5).Value)
+        statusCell   = Trim(Cells(i, 6).Value)
+
+        ' --- Skip rows with missing required data ---
+        If companyName = "" Or recordCode = "" Then
+            Debug.Print "Row " & i & " skipped: missing Company Name or Record Code."
+            skipCount = skipCount + 1
+            GoTo NextRow
+        End If
+
+        ' --- Skip rows already marked as done ---
+        If InStr(1, statusCell, "Done", vbTextCompare) > 0 Then
+            Debug.Print "Row " & i & " skipped: already processed (" & statusCell & ")."
+            skipCount = skipCount + 1
+            GoTo NextRow
+        End If
+
+        ' --- Select template based on version ---
         Select Case versionLabel
             Case "V1": templatePath = basePath & "\V1.docx"
             Case "V2": templatePath = basePath & "\V2.docx"
             Case "V3": templatePath = basePath & "\V3.docx"
             Case Else
-                Debug.Print "Versione non riconosciuta alla riga " & i & ": " & versionLabel
+                Debug.Print "Row " & i & " skipped: unrecognised version '" & versionLabel & "'."
+                Cells(i, 6).Value = "ERROR - Unknown version: " & versionLabel
+                skipCount = skipCount + 1
                 GoTo NextRow
         End Select
 
-        ' Verifica esistenza template
+        ' --- Verify template exists ---
         If Dir(templatePath) = "" Then
-            Debug.Print "Template non trovato: " & templatePath
+            Debug.Print "Row " & i & ": template not found at " & templatePath
+            Cells(i, 6).Value = "ERROR - Template not found: " & versionLabel
+            errorCount = errorCount + 1
             GoTo NextRow
         End If
 
-        ' Pulizia caratteri illegali per il nome file
-        Dim safeCompanyName As String
+        ' --- Sanitise company name for use in file name ---
         safeCompanyName = companyName
-        Dim chars As Variant, c As Long
-        chars = Array("/", "\", ":", "*", "?", """", "<", ">", "|")
-        For c = LBound(chars) To UBound(chars)
-            safeCompanyName = Replace(safeCompanyName, chars(c), "-")
+        For c = LBound(illegalChars) To UBound(illegalChars)
+            safeCompanyName = Replace(safeCompanyName, illegalChars(c), "-")
         Next c
 
-        ' Apre il template Word
-        Set wdDoc = wdApp.Documents.Open(templatePath, ReadOnly:=True)
+        ' Build output PDF path
+        pdfFilePath = outputFolder & recordCode & "_" & safeCompanyName & ".pdf"
 
-        ' Sostituzione Placeholder
-        ' Utilizziamo una funzione helper o cicliamo sul contenuto
-        Set findRange = wdDoc.Content
-        
-        ' <<CODE>>
-        With findRange.Find
-            .Text = "<<CODE>>"
-            .Replacement.Text = recordCode
-            .Execute Replace:=2 ' wdReplaceAll
-        End With
-        
-        ' <<COMPANY>>
-        Set findRange = wdDoc.Content
-        With findRange.Find
-            .Text = "<<COMPANY>>"
-            .Replacement.Text = companyName
-            .Execute Replace:=2
-        End With
-
-        ' <<EMAIL>>
-        Set findRange = wdDoc.Content
-        With findRange.Find
-            .Text = "<<EMAIL>>"
-            .Replacement.Text = emailAddress
-            .Execute Replace:=2
-        End With
-
-        ' <<DATE>>
-        Set findRange = wdDoc.Content
-        With findRange.Find
-            .Text = "<<DATE>>"
-            .Replacement.Text = recordDate
-            .Execute Replace:=2
-        End With
-
-        ' Esporta come PDF
-        pdfFileName = outputFolder & recordCode & "_" & safeCompanyName & ".pdf"
-        wdDoc.ExportAsFixedFormat OutputFileName:=pdfFileName, ExportFormat:=17 ' 17 = wdExportFormatPDF
-        
-        ' Chiude senza salvare modifiche al template
-        wdDoc.Close False
+        ' --- Open Word template (read-write, on a fresh copy each time) ---
         Set wdDoc = Nothing
+        On Error Resume Next
+        Set wdDoc = wdApp.Documents.Open(templatePath, ReadOnly:=False)
+        On Error GoTo ErrorHandler
+
+        If wdDoc Is Nothing Then
+            Debug.Print "Row " & i & ": failed to open template " & templatePath
+            Cells(i, 6).Value = "ERROR - Could not open template"
+            errorCount = errorCount + 1
+            GoTo NextRow
+        End If
+
+        ' --- Replace placeholders ---
+        Call ReplacePlaceholder(wdDoc, "<<CODE>>",    recordCode)
+        Call ReplacePlaceholder(wdDoc, "<<COMPANY>>", companyName)
+        Call ReplacePlaceholder(wdDoc, "<<EMAIL>>",   emailAddress)
+        Call ReplacePlaceholder(wdDoc, "<<DATE>>",    recordDate)
+
+        ' --- Export to PDF ---
+        On Error Resume Next
+        wdDoc.ExportAsFixedFormat OutputFileName:=pdfFilePath, ExportFormat:=17 ' 17 = wdExportFormatPDF
+        If Err.Number <> 0 Then
+            Debug.Print "Row " & i & ": PDF export failed - " & Err.Description
+            Cells(i, 6).Value = "ERROR - PDF export failed"
+            Err.Clear
+            wdDoc.Close SaveChanges:=False
+            Set wdDoc = Nothing
+            errorCount = errorCount + 1
+            On Error GoTo ErrorHandler
+            GoTo NextRow
+        End If
+        On Error GoTo ErrorHandler
+
+        ' --- Close document WITHOUT saving changes to the template ---
+        wdDoc.Close SaveChanges:=False
+        Set wdDoc = Nothing
+
+        ' --- Mark row as done with timestamp ---
+        Cells(i, 6).Value = "Done - " & Format(Now(), "yyyy-mm-dd hh:mm")
+        successCount = successCount + 1
 
 NextRow:
     Next i
 
+    ' -------------------------------------------------------------------------
+    ' CLEANUP & SUMMARY
+    ' -------------------------------------------------------------------------
 CleanUp:
+    Application.StatusBar = False   ' Restore default status bar
+
+    ' Safely close any document still open
+    If Not wdDoc Is Nothing Then
+        On Error Resume Next
+        wdDoc.Close SaveChanges:=False
+        Set wdDoc = Nothing
+        On Error GoTo 0
+    End If
+
+    ' Quit Word
     If Not wdApp Is Nothing Then
+        On Error Resume Next
         wdApp.Quit
         Set wdApp = Nothing
+        On Error GoTo 0
     End If
-    MsgBox "Processo completato. PDF generati in: " & outputFolder, vbInformation
+
+    ' Final summary message
+    MsgBox "Process complete." & vbCrLf & vbCrLf & _
+           "  Successful :  " & successCount & vbCrLf & _
+           "  Skipped     :  " & skipCount & vbCrLf & _
+           "  Errors       :  " & errorCount & vbCrLf & vbCrLf & _
+           "PDFs saved to: " & outputFolder, _
+           vbInformation, "PDF Generator - Summary"
+
     Exit Sub
 
+    ' -------------------------------------------------------------------------
+    ' ERROR HANDLER
+    ' -------------------------------------------------------------------------
 ErrorHandler:
-    MsgBox "Errore alla riga " & i & ": " & Err.Description, vbCritical
+    Dim errMsg As String
+    errMsg = "Unexpected error at row " & i & ":" & vbCrLf & _
+             "Error " & Err.Number & " - " & Err.Description
+
+    Debug.Print errMsg
+
+    ' Try to log error in the Status column
+    On Error Resume Next
+    If i >= 2 Then Cells(i, 6).Value = "ERROR - " & Err.Description
+    On Error GoTo 0
+
+    errorCount = errorCount + 1
     Resume CleanUp
+
+End Sub
+
+
+' -----------------------------------------------------------------------------
+' HELPER: ReplacePlaceholder
+' Replaces all occurrences of a placeholder tag in the entire Word document,
+' including headers, footers, and text boxes.
+' -----------------------------------------------------------------------------
+Private Sub ReplacePlaceholder(ByVal doc As Object, _
+                                ByVal placeholder As String, _
+                                ByVal replacement As String)
+
+    Dim rng As Object
+
+    ' --- Main body ---
+    Set rng = doc.Content
+    With rng.Find
+        .ClearFormatting
+        .Text              = placeholder
+        .Replacement.Text  = replacement
+        .Forward           = True
+        .Wrap              = 1          ' wdFindContinue
+        .MatchCase         = False
+        .MatchWholeWord    = False
+        .Execute Replace:=2             ' wdReplaceAll
+    End With
+
+    ' --- Headers and Footers (all sections) ---
+    Dim sec As Object
+    Dim hf  As Object
+    For Each sec In doc.Sections
+        For Each hf In sec.Headers
+            If hf.Exists Then
+                Set rng = hf.Range
+                With rng.Find
+                    .ClearFormatting
+                    .Text             = placeholder
+                    .Replacement.Text = replacement
+                    .Forward          = True
+                    .Wrap             = 1
+                    .Execute Replace:=2
+                End With
+            End If
+        Next hf
+        For Each hf In sec.Footers
+            If hf.Exists Then
+                Set rng = hf.Range
+                With rng.Find
+                    .ClearFormatting
+                    .Text             = placeholder
+                    .Replacement.Text = replacement
+                    .Forward          = True
+                    .Wrap             = 1
+                    .Execute Replace:=2
+                End With
+            End If
+        Next hf
+    Next sec
+
+    ' --- Text Boxes / Shapes ---
+    Dim shp As Object
+    For Each shp In doc.Shapes
+        On Error Resume Next
+        Set rng = shp.TextFrame.TextRange
+        If Not rng Is Nothing Then
+            With rng.Find
+                .ClearFormatting
+                .Text             = placeholder
+                .Replacement.Text = replacement
+                .Forward          = True
+                .Wrap             = 1
+                .Execute Replace:=2
+            End With
+        End If
+        On Error GoTo 0
+    Next shp
+
 End Sub
