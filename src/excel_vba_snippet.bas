@@ -6,7 +6,7 @@
 '              and visual feedback via status bar.
 '
 ' Excel Column Setup:
-'   A: Company Name | B: Record Code | C: Version (V1/V2/V3) | D: Email | E: Date | F: Status
+'   A: Company Name | B: Record Code | C: Version (V1/V2/V3) | D: Email | E: Date | F: Status | G: PDF Filename (auto-filled)
 '
 ' Word Template Placeholders:
 '   <<CODE>> | <<COMPANY>> | <<EMAIL>> | <<DATE>>
@@ -42,6 +42,7 @@ Sub GeneratePDFs()
     Dim recordDate      As String
     Dim statusCell      As String
 
+    Dim pdfFileName     As String
     Dim illegalChars    As Variant
     Dim c               As Long
     Dim successCount    As Long
@@ -131,8 +132,12 @@ Sub GeneratePDFs()
             safeCompanyName = Replace(safeCompanyName, illegalChars(c), "-")
         Next c
 
-        ' Build output PDF path
-        pdfFilePath = outputFolder & recordCode & "_" & safeCompanyName & ".pdf"
+        ' Build canonical PDF filename and write it to column G (source of truth for GAS)
+        pdfFileName = recordCode & "_" & safeCompanyName & ".pdf"
+        Cells(i, 7).Value = pdfFileName
+
+        ' Build full output path
+        pdfFilePath = outputFolder & pdfFileName
 
         ' --- Open Word template (read-write, on a fresh copy each time) ---
         Set wdDoc = Nothing
