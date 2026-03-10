@@ -1,28 +1,12 @@
 ' -----------------------------------------------------------------------------
 ' Project: Automated PDF Generator from Excel
-' Author: Jenny Marchioro (vibecoding with ChatGPT)
+' Author: Jenny Marchioro (Fixed Version)
 ' Description:
-'   This VBA macro reads data from an Excel worksheet, opens corresponding Word
-'   templates, replaces placeholders with values from the sheet, and exports
-'   each filled document as a PDF file. Designed for non-developers who want to
-'   automate repetitive document creation tasks.
+'   Legge i dati da Excel, apre template Word, sostituisce i placeholder
+'   e salva in PDF. Include gestione errori e pulizia processi.
 '
-' How to use:
-'   1. Place this VBA code inside an Excel module.
-'   2. In your Excel file, create a table with these columns:
-'        A: Company Name
-'        B: Unique Code or ID
-'        C: Version (e.g., V1, V2, V3)
-'   3. Store your Word templates (V1.docx, V2.docx, V3.docx) in the same folder
-'      as the Excel file. Inside each template, include placeholders like:
-'        <<CODE>>  and  <<COMPANY>>
-'   4. Run the macro. It will create a folder called “Generated_PDFs” and save
-'      one PDF for each Excel row.
-'
-' Notes:
-'   - This macro runs locally and does not send any data online.
-'   - Works with Microsoft Word and Excel on Windows.
-'   - Edit placeholders or variable names as needed for your workflow.
+' Setup Colonne Excel:
+'   A: Company Name | B: Code | C: Version | D: Email | E: Date
 ' -----------------------------------------------------------------------------
 
 Sub GeneratePDFs()
@@ -30,90 +14,114 @@ Sub GeneratePDFs()
     Dim i As Long
     Dim templatePath As String, outputFolder As String, pdfFileName As String
     Dim recordCode As String, companyName As String, versionLabel As String
+    Dim emailAddress As String, recordDate As String
     Dim basePath As String
-    Dim findCode As Object, findCompany As Object
+    Dim findRange As Object
+    
+    On Error GoTo ErrorHandler
 
-    ' Base path (folder where the Excel file is located)
+    ' Percorso base (cartella del file Excel)
     basePath = ThisWorkbook.Path
     outputFolder = basePath & "\Generated_PDFs\"
 
-    ' Create output folder if it doesn't exist
+    ' Crea cartella di output se non esiste
     If Dir(outputFolder, vbDirectory) = "" Then MkDir outputFolder
 
-    ' Start Word (hidden)
+    ' Avvia Word (nascosto)
     Set wdApp = CreateObject("Word.Application")
     wdApp.Visible = False
 
-    ' Loop through all rows starting from row 2
+    ' Ciclo sulle righe partendo dalla 2
     For i = 2 To Cells(Rows.Count, 1).End(xlUp).Row
-        companyName = Trim(Cells(i, 1).Value)       ' Column A - Company Name
-        recordCode = Trim(Cells(i, 2).Value)        ' Column B - Unique Code / ID
-        versionLabel = UCase(Trim(Cells(i, 3).Value)) ' Column C - Version or Template Type
+        companyName = Trim(Cells(i, 1).Value)         ' Colonna A
+        recordCode = Trim(Cells(i, 2).Value)          ' Colonna B
+        versionLabel = UCase(Trim(Cells(i, 3).Value))  ' Colonna C
+        emailAddress = Trim(Cells(i, 4).Value)        ' Colonna D
+        recordDate = Trim(Cells(i, 5).Value)          ' Colonna E
 
-        ' Select the correct Word template based on version
+        ' Selezione template in base alla versione
         Select Case versionLabel
             Case "V1": templatePath = basePath & "\V1.docx"
             Case "V2": templatePath = basePath & "\V2.docx"
             Case "V3": templatePath = basePath & "\V3.docx"
             Case Else
-                MsgBox "Unrecognized version at row " & i & ": " & versionLabel, vbExclamation
+                Debug.Print "Versione non riconosciuta alla riga " & i & ": " & versionLabel
                 GoTo NextRow
         End Select
 
-        ' Clean illegal characters from company name (for file name safety)
-        companyName = Replace(companyName, "/", "-")
-        companyName = Replace(companyName, "\", "-")
-        companyName = Replace(companyName, ":", "-")
-        companyName = Replace(companyName, "*", "")
-        companyName = Replace(companyName, "?", "")
-        companyName = Replace(companyName, """", "")
-        companyName = Replace(companyName, "<", "")
-        companyName = Replace(companyName, ">", "")
-        companyName = Replace(companyName, "|", "")
+        ' Verifica esistenza template
+        If Dir(templatePath) = "" Then
+            Debug.Print "Template non trovato: " & templatePath
+            GoTo NextRow
+        End If
 
-        ' Open Word template
-        Set wdDoc = wdApp.Documents.Open(templatePath)
+        ' Pulizia caratteri illegali per il nome file
+        Dim safeCompanyName As String
+        safeCompanyName = companyName
+        Dim chars As Variant, c As Long
+        chars = Array("/", "\", ":", "*", "?", """", "<", ">", "|")
+        For c = LBound(chars) To UBound(chars)
+            safeCompanyName = Replace(safeCompanyName, chars(c), "-")
+        Next c
 
-        ' Replace placeholders with Excel data values
-        Set findCode = wdDoc.Content
-        With findCode.Find
+        ' Apre il template Word
+        Set wdDoc = wdApp.Documents.Open(templatePath, ReadOnly:=True)
+
+        ' Sostituzione Placeholder
+        ' Utilizziamo una funzione helper o cicliamo sul contenuto
+        Set findRange = wdDoc.Content
+        
+        ' <<CODE>>
+        With findRange.Find
             .Text = "<<CODE>>"
-            .Replacement.Text = CODE
-            .Execute Replace:=2
+            .Replacement.Text = recordCode
+            .Execute Replace:=2 ' wdReplaceAll
         End With
-
-        Set findCompany = wdDoc.Content
-        With findCompany.Find
+        
+        ' <<COMPANY>>
+        Set findRange = wdDoc.Content
+        With findRange.Find
             .Text = "<<COMPANY>>"
-            .Replacement.Text = COMPANY
-            .Execute Replace:=2
-        End With
-        
-        Set findEmail = wdDoc.Content
-        With findCompany.Find
-            .Text = "<<EMAIL>>"
-            .Replacement.Text = Email
-            .Execute Replace:=2
-        End With
-        
-        Set findDate = wdDoc.Content
-        With findCompany.Find
-            .Text = "<<DATE>>"
-            .Replacement.Text = Date
+            .Replacement.Text = companyName
             .Execute Replace:=2
         End With
 
-        ' Save the filled document as PDF
-        pdfFileName = outputFolder & recordCode & "_" & companyName & ".pdf"
-        wdDoc.ExportAsFixedFormat OutputFileName:=pdfFileName, ExportFormat:=17
+        ' <<EMAIL>>
+        Set findRange = wdDoc.Content
+        With findRange.Find
+            .Text = "<<EMAIL>>"
+            .Replacement.Text = emailAddress
+            .Execute Replace:=2
+        End With
+
+        ' <<DATE>>
+        Set findRange = wdDoc.Content
+        With findRange.Find
+            .Text = "<<DATE>>"
+            .Replacement.Text = recordDate
+            .Execute Replace:=2
+        End With
+
+        ' Esporta come PDF
+        pdfFileName = outputFolder & recordCode & "_" & safeCompanyName & ".pdf"
+        wdDoc.ExportAsFixedFormat OutputFileName:=pdfFileName, ExportFormat:=17 ' 17 = wdExportFormatPDF
+        
+        ' Chiude senza salvare modifiche al template
         wdDoc.Close False
+        Set wdDoc = Nothing
 
 NextRow:
     Next i
 
-    ' Close Word instance
-    wdApp.Quit
+CleanUp:
+    If Not wdApp Is Nothing Then
+        wdApp.Quit
+        Set wdApp = Nothing
+    End If
+    MsgBox "Processo completato. PDF generati in: " & outputFolder, vbInformation
+    Exit Sub
 
-    ' Confirmation message
-    MsgBox "PDFs successfully generated in: " & outputFolder, vbInformation
+ErrorHandler:
+    MsgBox "Errore alla riga " & i & ": " & Err.Description, vbCritical
+    Resume CleanUp
 End Sub
