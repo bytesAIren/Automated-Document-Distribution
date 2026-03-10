@@ -1,59 +1,64 @@
 /**
- * -----------------------------------------------------------------------------
- * Project: Automated Email Sender with Google Apps Script
- * Author: Kimbergoldess (vibecoding with ChatGPT)
- * Description:
- *   This Google Apps Script reads data from a Google Sheet and sends
- *   personalized emails through Gmail. Each row in the sheet should contain
- *   a recipient name, a unique ID/code, an optional version label, and an
- *   email address.
- *
- * How to use:
- *   1. Create a Google Sheet with these columns:
- *        A: Company / Recipient Name
- *        B: Unique Code or Reference ID
- *        C: Version (optional)
- *        D: Email Address
- *   2. Open the Google Sheet → Extensions → Apps Script.
- *   3. Paste this script into the editor.
- *   4. Replace the SHEET_ID and SHEET_NAME with your own.
- *   5. Run the function `sendEmails()` and authorize access when prompted.
- *
- * Notes:
- *   - This script uses your Gmail account to send emails.
- *   - Works in a sandbox mode (sends only what you confirm in testing).
- *   - Modify the subject/body text freely to match your use case.
- * -----------------------------------------------------------------------------
+ * Project: Automated Email Sender with Google Drive Attachments
+ * Descrizione: Cerca un file PDF in una cartella specifica di Google Drive
+ * basandosi sul codice record e lo invia come allegato.
  */
 
-function sendEmails() {
-  // --- SETTINGS ---
-  const SHEET_ID = 'YOUR_SHEET_ID_HERE'; // Replace with your actual Google Sheet ID
-  const SHEET_NAME = 'Sheet1'; // Replace with your sheet name if different
+function sendEmailsWithAttachments() {
+  // --- IMPOSTAZIONI ---
+  const SHEET_ID = 'IL_TUO_ID_FOGLIO_QUI'; 
+  const SHEET_NAME = 'Sheet1';
+  // Inserisci l'ID della cartella di Google Drive dove hai caricato i PDF
+  const FOLDER_ID = 'IL_TUO_ID_CARTELLA_DRIVE_QUI'; 
 
-  // --- GET DATA FROM GOOGLE SHEET ---
   const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(SHEET_NAME);
   const data = sheet.getDataRange().getValues();
+  const folder = DriveApp.getFolderById(FOLDER_ID);
 
-  // --- LOOP THROUGH ALL ROWS (starting from row 2) ---
+  // Ciclo sulle righe (partendo dalla seconda)
   for (let i = 1; i < data.length; i++) {
     const company = data[i][0];
     const recordCode = data[i][1];
-    const versionLabel = data[i][2];
     const email = data[i][3];
 
-    // --- EMAIL CONTENT ---
-    const subject = 'Information Note – Ref. ' + recordCode;
-    const body = 'Dear ' + company + ',\n\n' +
-                 'Please find attached the document related to reference ' + recordCode + '.\n\n' +
-                 'Best regards,\n' +
-                 'Automated Email System';
+    if (!email || !recordCode) continue;
 
-    // --- SEND EMAIL ---
-    MailApp.sendEmail(email, subject, body);
+    // --- RICERCA ALLEGATO ---
+    // Cerca file che iniziano con il recordCode nella cartella specificata
+    const files = folder.getFilesByName(recordCode + "_" + company + ".pdf");
+    let attachment = null;
+    
+    if (files.hasNext()) {
+      attachment = files.next();
+    } else {
+      // Prova ricerca parziale se il nome azienda è diverso
+      const partialFiles = folder.searchFiles("title contains '" + recordCode + "'");
+      if (partialFiles.hasNext()) {
+        attachment = partialFiles.next();
+      }
+    }
+
+    // --- INVIO EMAIL ---
+    const subject = 'Documentazione – Rif. ' + recordCode;
+    const body = 'Gentile ' + company + ',\n\n' +
+                 'In allegato alla presente inviamo il documento relativo al riferimento ' + recordCode + '.\n\n' +
+                 'Cordiali saluti,\n' +
+                 'Sistema Automatico';
+
+    try {
+      if (attachment) {
+        MailApp.sendEmail({
+          to: email,
+          subject: subject,
+          body: body,
+          attachments: [attachment.getAs(MimeType.PDF)]
+        });
+        Logger.log('Inviata a ' + email + ' con allegato: ' + attachment.getName());
+      } else {
+        Logger.log('ATTENZIONE: Allegato non trovato per ' + recordCode + '. Email non inviata.');
+      }
+    } catch (e) {
+      Logger.log('Errore riga ' + (i+1) + ': ' + e.toString());
+    }
   }
-
-  // --- CONFIRMATION MESSAGE ---
-  Logger.log('All emails have been sent successfully.');
 }
-
