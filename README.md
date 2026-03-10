@@ -21,12 +21,33 @@ Built by a professional from a commercial back-office background with **zero for
 
 ---
 
+## How it works
+
+```
+Excel Sheet  →  VBA macro opens Word template
+             →  replaces placeholders with row data
+             →  exports PDF to local folder
+             →  writes canonical filename to column G  ← source of truth
+             →  marks row as Done in column F
+
+Google Drive  ←  you upload the generated PDFs manually
+
+GAS script   →  reads PDF filename from column G
+             →  finds the PDF in Google Drive by exact name
+             →  sends email with attachment
+             →  marks row as Sent in column H
+```
+
+Column G is the **shared contract** between the two scripts — the exact filename written by VBA is the one GAS will search for in Drive. No guesswork, no mismatch.
+
+---
+
 ## Tech stack
 
 | Tool | Role |
 |---|---|
 | Microsoft Excel + VBA | Data parsing and local PDF generation |
-| Word (.docx templates) | Document layout with `<<PLACEHOLDER>>` tags |
+| Microsoft Word | Document layout with `<<PLACEHOLDER>>` tags |
 | Google Apps Script | Gmail API integration and email dispatch |
 | Google Drive | Cloud storage for generated PDFs |
 | Google Sheets | Shared data source and status log |
@@ -37,11 +58,15 @@ Built by a professional from a commercial back-office background with **zero for
 
 ```
 /
+├── demo/
+│   ├── demo_data.xlsx          # Sample Excel workbook with example rows
+│   └── V1.docx                 # Sample Word template with placeholders
+├── output_example/
+│   ├── sheet_screenshot.png    # How the Sheet looks after running both scripts
+│   └── generated_pdfs/         # Example output PDFs
 ├── src/
-│   ├── excel_vba_fixed.bas       # VBA macro — generates PDFs from Word templates
-│   └── script_gmail_fixed.gs     # Apps Script — sends emails with Drive attachments
-├── templates/                    # Put your V1.docx / V2.docx / V3.docx here
-├── output_example/               # Example of a generated PDF
+│   ├── excel_vba_snippet.bas   # VBA macro — generates PDFs from Word templates
+│   └── script_gmail.gs         # Apps Script — sends emails with Drive attachments
 └── README.md
 ```
 
@@ -55,38 +80,20 @@ Both scripts share the same Google Sheet. **Column order matters.**
 |---|---|---|
 | A | Company Name | You |
 | B | Record Code | You |
-| C | Version (V1 / V2 / V3) | You |
+| C | Version (`V1` / `V2` / `V3`) | You |
 | D | Email address | You |
 | E | Date | You |
 | F | VBA Status | Excel macro |
 | G | **PDF Filename** ← source of truth | Excel macro |
 | H | Email Status | Apps Script |
 
-> **Why column G matters:** the VBA macro sanitises the company name (removes illegal characters) before building the PDF filename, then writes the exact filename to column G. The Apps Script reads column G directly — no guesswork, no mismatch.
+> **Do not edit columns F, G, or H manually.** They are written automatically by the scripts. See `demo/demo_data.xlsx` for a working example.
 
 ---
 
-## Prerequisites
+## Word template setup
 
-### On the Excel / Windows side
-- Microsoft Excel (any recent version)
-- Microsoft Word (must be installed — VBA automates it in the background)
-- The three template files (`V1.docx`, `V2.docx`, `V3.docx`) in the **same folder** as the Excel workbook
-
-### On the Google side
-- A Google account
-- A Google Sheet (can be a copy of your Excel file, uploaded to Drive)
-- A Google Drive folder where the PDFs will be uploaded
-- Access to [Google Apps Script](https://script.google.com)
-
----
-
-## Setup — step by step
-
-### Part 1 — Prepare your Word templates
-
-1. Create up to three Word documents: `V1.docx`, `V2.docx`, `V3.docx`
-2. Inside each document, place these placeholder tags wherever you want data to appear:
+Each template (`V1.docx`, `V2.docx`, `V3.docx`) must contain these exact placeholder tags as plain text:
 
 | Placeholder | Replaced with |
 |---|---|
@@ -95,81 +102,87 @@ Both scripts share the same Google Sheet. **Column order matters.**
 | `<<EMAIL>>` | Email address (col D) |
 | `<<DATE>>` | Date (col E) |
 
-3. Placeholders work in the **body, headers, footers, and text boxes**
-4. Save the templates in the same folder as your Excel workbook
+Placeholders are replaced everywhere in the document: **body, headers, footers, and text boxes**. See `demo/V1.docx` for a ready-to-use example.
+
+---
+
+## Prerequisites
+
+**On the Excel / Windows side:**
+- Microsoft Excel (any recent version)
+- Microsoft Word (must be installed — VBA automates it in the background)
+- Template files (`V1.docx`, `V2.docx`, `V3.docx`) in the **same folder** as the Excel workbook
+
+**On the Google side:**
+- A Google account with access to Gmail, Google Sheets, and Google Drive
+- Access to [Google Apps Script](https://script.google.com)
+
+---
+
+## Setup — step by step
+
+### Part 1 — Prepare your data and templates
+
+1. Open `demo/demo_data.xlsx` as a starting point, or create your own spreadsheet with the column layout shown above.
+2. Fill in your data from **row 2** onwards (row 1 = headers). Columns A–E only — F, G, H will be filled by the scripts.
+3. Use `demo/V1.docx` as a template reference, or create your own Word files with the `<<PLACEHOLDER>>` tags listed above.
+4. Place all template files in the **same folder** as your Excel workbook.
 
 ---
 
 ### Part 2 — Run the VBA macro (Excel → PDF)
 
-1. Open your Excel workbook and make sure your data starts on **row 2** (row 1 = headers)
-2. Press `Alt + F11` to open the VBA editor
-3. Go to **Insert → Module** and paste the contents of `excel_vba_fixed.bas`
-4. Close the editor and press `Alt + F8`, select `GeneratePDFs`, click **Run**
-5. The macro will:
-   - Generate one PDF per row into a `Generated_PDFs\` subfolder
+1. Open your Excel workbook and press `Alt + F11` to open the VBA editor.
+2. Go to **Insert → Module** and paste the contents of `src/excel_vba_snippet.bas`.
+3. Close the editor, then press `Alt + F8`, select `GeneratePDFs`, and click **Run**.
+4. The macro will:
+   - Open each Word template, replace placeholders, and export a PDF per row
+   - Save PDFs into a `Generated_PDFs\` subfolder (created automatically)
    - Write the exact PDF filename into **column G**
-   - Log the result (`Done` or `ERROR - ...`) into **column F**
+   - Log `Done - yyyy-mm-dd hh:mm` (or an error message) into **column F**
 
 ---
 
 ### Part 3 — Upload PDFs to Google Drive
 
-1. Go to [drive.google.com](https://drive.google.com) and create a dedicated folder (e.g. `PDF_Distribution`)
-2. Upload all files from your local `Generated_PDFs\` folder into it
-3. Open the folder and look at its URL:
+1. Go to [drive.google.com](https://drive.google.com) and create a dedicated folder (e.g. `PDF_Dispatch`).
+2. Upload all files from your local `Generated_PDFs\` folder into it.
+3. Copy the folder ID from its URL:
    ```
-   https://drive.google.com/drive/folders/XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+   https://drive.google.com/drive/folders/THIS_IS_YOUR_FOLDER_ID
    ```
-   Copy the long ID at the end — this is your **FOLDER_ID**
 
 ---
 
-### Part 4 — Set up Google Apps Script (Google → Email)
+### Part 4 — Run the GAS script (Drive → Gmail)
 
-1. Open your Google Sheet
-2. Get your **SHEET_ID** from its URL:
-   ```
-   https://docs.google.com/spreadsheets/d/XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX/edit
-   ```
-3. Go to **Extensions → Apps Script**
-4. Delete any existing code and paste the contents of `script_gmail_fixed.gs`
-5. At the top of the script, fill in your IDs:
+1. Open your Google Sheet and go to **Extensions → Apps Script**.
+2. Delete any existing code and paste the contents of `src/script_gmail.gs`.
+3. At the top of the script, fill in your IDs:
    ```javascript
-   const SHEET_ID  = 'YOUR_SHEET_ID_HERE';
+   const SHEET_ID  = 'YOUR_SHEET_ID_HERE';   // from the Sheet URL
    const FOLDER_ID = 'YOUR_DRIVE_FOLDER_ID_HERE';
    ```
-6. Click **Save**, then click **Run** on `sendEmailsWithAttachments`
-7. On the first run, Google will ask you to authorise access to Gmail and Drive — accept
-8. The script will:
-   - Read column G for the exact PDF filename to look up in Drive
+   > Your Sheet ID is in its URL: `https://docs.google.com/spreadsheets/d/THIS_IS_YOUR_SHEET_ID/edit`
+4. Click **Save**, then **Run → sendEmailsWithAttachments**.
+5. On the first run, Google will ask you to authorise access to Gmail and Drive — follow the prompts.
+6. The script will:
+   - Read the PDF filename from **column G** and search for it in Drive
    - Send the email with the PDF attached
    - Log `Sent - yyyy-mm-dd hh:mm` (or an error) into **column H**
 
----
-
-## How the two scripts stay in sync
-
-```
-Excel VBA                          Google Apps Script
-─────────────────────────────      ──────────────────────────────
-Reads:   cols A, B, C, D, E       Reads:  cols B, D, G
-Writes:  col F (VBA status)       Writes: col H (email status)
-         col G (PDF filename) ──────────► used as Drive search key
-```
-
-Column G is the **single source of truth** for the PDF filename. The VBA macro handles character sanitisation (e.g. `O'Brien & Co.` → `O-Brien---Co`); the Apps Script never has to replicate that logic.
+Check **View → Logs** in the Apps Script editor to monitor progress in real time.
 
 ---
 
 ## Re-running safely
 
-Both scripts are **idempotent** — you can run them multiple times without duplicating work:
+Both scripts are idempotent — safe to re-run multiple times without duplicating work:
 
 - **VBA**: skips any row where column F already contains `Done`
-- **Apps Script**: skips any row where column H already starts with `Sent`
+- **GAS**: skips any row where column H already starts with `Sent`
 
-To reprocess a specific row, simply clear its status cell (F or H) and run again.
+To reprocess a specific row, clear its status cell (F or H) and run again.
 
 ---
 
@@ -177,11 +190,11 @@ To reprocess a specific row, simply clear its status cell (F or H) and run again
 
 | Limit | Value |
 |---|---|
-| Gmail free account | ~100 emails/day |
-| Gmail Workspace account | ~1,500 emails/day |
-| Script safety cap (`MAX_EMAILS_PER_RUN`) | 90 (configurable) |
+| Gmail free account | ~100 emails / day |
+| Gmail Workspace account | ~1,500 emails / day |
+| Script safety cap (`MAX_EMAILS_PER_RUN`) | 90 (configurable in `script_gmail.gs`) |
 
-If you hit the cap mid-run, the script stops and logs a warning. Re-run the next day — already-sent rows are skipped automatically.
+If you hit the daily cap mid-run, the script stops and logs a warning. Re-run the next day — already-sent rows are skipped automatically.
 
 ---
 
@@ -189,11 +202,12 @@ If you hit the cap mid-run, the script stops and logs a warning. Re-run the next
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| PDF not found in Drive | Filename mismatch | Check col G matches the actual file in Drive |
-| Word opens visibly during macro | `wdApp.Visible` set to True | Set it back to `False` in the VBA |
-| "Authorization required" in GAS | First run, permissions not granted yet | Click through the OAuth flow |
-| Email sent but no attachment | PDF wasn't uploaded to Drive | Upload the file and re-run (clear col H first) |
-| Template placeholders not replaced | Placeholder typo in Word | Make sure tags are exactly `<<CODE>>` etc. |
+| PDF not generated | Word template not found | Check template files are in the same folder as the workbook |
+| Placeholder not replaced | Typo in the Word file | Tags must be exactly `<<CODE>>`, `<<COMPANY>>`, `<<EMAIL>>`, `<<DATE>>` |
+| Column G is empty after running VBA | Macro stopped on an earlier error | Check column F for error messages on each row |
+| GAS reports "PDF not found in Drive" | File not uploaded, or wrong folder ID | Verify the file exists in the Drive folder and `FOLDER_ID` is correct |
+| "Authorisation required" error in GAS | First run only | Click through the Google OAuth permission prompts and run again |
+| Email sent but no attachment | PDF was not in Drive at send time | Upload the file, clear column H for that row, and re-run |
 
 ---
 
